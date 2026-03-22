@@ -81,13 +81,14 @@ const shouldRetry = (failureCode: RuntimeFailureCode): boolean => {
   return failureCode === 'image_upload_failed' || failureCode === 'image_upload_not_ready' || failureCode === 'editor_not_ready';
 };
 
-const writeRuntimeReport = async (report: PublishRuntimeReport): Promise<string> => {
+const writeRuntimeReport = async (report: PublishRuntimeReport): Promise<PublishRuntimeReport> => {
   const outDir = resolve('.runtime', 'reports');
   await mkdir(outDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const outPath = resolve(outDir, `${report.command}-${report.accountId}-${stamp}.json`);
-  await writeFile(outPath, JSON.stringify(report, null, 2), 'utf8');
-  return outPath;
+  const nextReport = { ...report, reportPath: outPath };
+  await writeFile(outPath, JSON.stringify(nextReport, null, 2), 'utf8');
+  return nextReport;
 };
 
 const buildRuntimeReport = async (
@@ -158,8 +159,8 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
   await tagHandler.apply(page, content.tags);
   const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
   const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-fill', content, mode, true, true, 'publish-fill completed');
-  const reportPath = await writeRuntimeReport(report);
-  logger.info('publish fill report', { ...report as unknown as Record<string, unknown>, reportPath });
+  const persistedReport = await writeRuntimeReport(report);
+  logger.info('publish fill report', persistedReport as unknown as Record<string, unknown>);
   logger.warn('publish-fill completed; browser kept open for manual continuation');
 };
 
@@ -285,6 +286,10 @@ const runAuthCheck = async (): Promise<void> => {
   try {
     const page = await context.newPage();
     await ensureLoginForPublish(page, accountId, sessionManager, context);
+    const screenshotPath = await logPageDiagnostics(page, accountId, 'auth-check');
+    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'auth-check', undefined, 'unknown', undefined, true, 'auth-check completed');
+    const persistedReport = await writeRuntimeReport(report);
+    logger.info('auth-check report', persistedReport as unknown as Record<string, unknown>);
     if (keepOpen) await waitForever();
   } finally { if (!keepOpen) await browser.close(); }
 };
@@ -313,8 +318,8 @@ const runPublishCheck = async (): Promise<void> => {
       currentUrl: page.url(),
       screenshotPath
     });
-    const reportPath = await writeRuntimeReport(report);
-    logger.info('publish-check report', { ...report as unknown as Record<string, unknown>, reportPath });
+    const persistedReport = await writeRuntimeReport(report);
+    logger.info('publish-check report', persistedReport as unknown as Record<string, unknown>);
 
     if (!keepOpen) return;
 
@@ -334,7 +339,10 @@ const runPublishOpen = async (): Promise<void> => {
     await ensureLoginForPublish(page, accountId, sessionManager, context);
     const publishPage = new PublishPage();
     await publishPage.open(page);
-    await logPageDiagnostics(page, accountId, 'publish-open');
+    const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-open');
+    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-open', undefined, 'unknown', undefined, true, 'publish-open completed');
+    const persistedReport = await writeRuntimeReport(report);
+    logger.info('publish-open report', persistedReport as unknown as Record<string, unknown>);
     logger.warn('publish-open completed; browser will stay open for manual continuation and no real submit was executed');
     await waitForever();
   } finally {

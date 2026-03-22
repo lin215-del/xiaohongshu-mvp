@@ -77,6 +77,7 @@ export interface PublishRuntimeReport {
   hasPublishButton?: boolean;
   hasDraftButton?: boolean;
   screenshotPath?: string;
+  reportPath?: string;
 }
 
 export interface PublishOptions {
