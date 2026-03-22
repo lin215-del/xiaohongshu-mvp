@@ -1,0 +1,29 @@
+{
+  "name": "xiaohongshu-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node.js + TypeScript + Playwright skeleton for Xiaohongshu publishing MVP",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "node --test --import tsx src/tests/**/*.test.ts",
+    "auth:check": "tsx src/index.ts auth-check",
+    "publish:check": "tsx src/index.ts publish-check",
+    "publish:open": "tsx src/index.ts publish-open",
+    "publish:fill": "tsx src/index.ts publish-fill",
+    "publish:inspect": "tsx src/index.ts publish-inspect"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.53.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
