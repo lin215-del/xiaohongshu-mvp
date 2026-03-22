@@ -46,6 +46,8 @@ export interface PublishPreview {
   tags: string[];
   imageCount: number;
   warnings: string[];
+  screenshotPath?: string;
+  currentUrl?: string;
 }
 
 export interface PublishOptions {

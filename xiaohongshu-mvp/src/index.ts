@@ -68,6 +68,27 @@ const getPublishContentFromEnv = async (): Promise<PublishContent> => {
   };
 };
 
+const buildFilledPreview = async (page: Page, screenshotPath: string, content: PublishContent): Promise<Record<string, unknown>> => {
+  const snapshot = await page.evaluate(({ expectedTitle, expectedBody }) => {
+    const text = document.body?.innerText || '';
+    const imageCountMatch = text.match(/(\d+)\/18/);
+    return {
+      currentUrl: location.href,
+      titlePresent: text.includes(expectedTitle),
+      bodyPresent: text.includes(expectedBody),
+      bodyCounterPresent: /0\s*\/\s*1000|\d+\s*\/\s*1000/.test(text),
+      imageCountHint: imageCountMatch ? Number(imageCountMatch[1]) : null,
+      hasPublishButton: /发布/.test(text),
+      hasDraftButton: /暂存离开/.test(text)
+    };
+  }, { expectedTitle: content.title, expectedBody: content.body }).catch(() => ({}));
+
+  return {
+    ...snapshot,
+    screenshotPath
+  };
+};
+
 const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountId: string): Promise<void> => {
   const editor = new Editor();
   const imageUploader = new ImageUploader();
@@ -90,7 +111,9 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
 
   try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-fill-error'); throw error; }
   await tagHandler.apply(page, content.tags);
-  await logPageDiagnostics(page, accountId, 'publish-fill-finished');
+  const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
+  const preview = await buildFilledPreview(page, screenshotPath, content);
+  logger.info('publish fill preview', preview);
   logger.warn('publish-fill completed; browser kept open for manual continuation');
 };
 
