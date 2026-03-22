@@ -77,13 +77,19 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
   await page.waitForTimeout(LIMITS.publishPageWaitMs);
   await popupHandler.dismissCommonPopups(page).catch(() => 0);
   logger.info('fill current page', { currentUrl: page.url(), mode: await editor.detectMode(page) });
+
+  const mode = await editor.detectMode(page);
+  if (mode === 'image' && content.imagePaths.length > 0) {
+    await imageUploader.upload(page, content.imagePaths).catch(async (error: unknown) => {
+      logger.warn('image upload skipped', { error: error instanceof Error ? error.message : String(error) });
+      await logPageDiagnostics(page, accountId, 'publish-fill-image-warning');
+      return 0;
+    });
+    await page.waitForTimeout(3_000).catch(() => undefined);
+  }
+
   try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-fill-error'); throw error; }
   await tagHandler.apply(page, content.tags);
-  await imageUploader.upload(page, content.imagePaths).catch(async (error: unknown) => {
-    logger.warn('image upload skipped', { error: error instanceof Error ? error.message : String(error) });
-    await logPageDiagnostics(page, accountId, 'publish-fill-image-warning');
-    return 0;
-  });
   await logPageDiagnostics(page, accountId, 'publish-fill-finished');
   logger.warn('publish-fill completed; browser kept open for manual continuation');
 };
@@ -94,18 +100,25 @@ const fillPublishPage = async (page: Page, content: PublishContent, accountId: s
   const imageUploader = new ImageUploader();
   const tagHandler = new TagHandler();
   const popupHandler = new PopupHandler();
-  await publishPage.open(page);
+  await publishPage.openImageMode(page);
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(LIMITS.publishPageWaitMs);
   await popupHandler.dismissCommonPopups(page).catch(() => 0);
-  logger.info('publish page opened', { currentUrl: page.url(), mode: await editor.detectMode(page) });
+  const mode = await editor.detectMode(page);
+  logger.info('publish page opened', { currentUrl: page.url(), mode });
+
+  let uploaded = 0;
+  if (content.imagePaths.length > 0) {
+    uploaded = await imageUploader.upload(page, content.imagePaths).catch(async (error: unknown) => {
+      logger.warn('image upload skipped', { error: error instanceof Error ? error.message : String(error) });
+      await logPageDiagnostics(page, accountId, 'publish-image-upload-warning');
+      return 0;
+    });
+    if (uploaded > 0) await page.waitForTimeout(3_000).catch(() => undefined);
+  }
+
   try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-editor-error'); throw error; }
   await tagHandler.apply(page, content.tags);
-  const uploaded = await imageUploader.upload(page, content.imagePaths).catch(async (error: unknown) => {
-    logger.warn('image upload skipped', { error: error instanceof Error ? error.message : String(error) });
-    await logPageDiagnostics(page, accountId, 'publish-image-upload-warning');
-    return 0;
-  });
   await logPageDiagnostics(page, accountId, 'publish-check-finished');
   logger.info('publish page check completed', { title: content.title, tagCount: content.tags.length, uploaded, currentUrl: page.url() });
 };
@@ -265,20 +278,10 @@ const runPublishFill = async (): Promise<void> => {
     const page = await context.newPage();
     await ensureLoginForPublish(page, accountId, sessionManager, context);
     const publishPage = new PublishPage();
-    const editor = new Editor();
-    await publishPage.open(page);
-    logger.warn('please manually click 上传图文 now; script will wait for editable fields to appear, then fill automatically');
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < LIMITS.manualImageModeWaitMs) {
-      const probe = await editor.waitForEditableFields(page);
-      if (probe.titleInput || probe.bodyEditor) {
-        await fillCurrentPageOnly(page, content, accountId);
-        await waitForever();
-      }
-      await page.waitForTimeout(1_000);
-    }
-    await logPageDiagnostics(page, accountId, 'publish-fill-timeout');
-    throw new Error('manual switch to 上传图文 did not expose editable fields within the timeout window');
+    await publishPage.openImageMode(page);
+    logger.warn('image publish route opened; script will upload images first, then wait for editable fields to appear');
+    await fillCurrentPageOnly(page, content, accountId);
+    await waitForever();
   } catch (error) {
     logger.error('publish-fill failed', { error: error instanceof Error ? error.message : String(error) });
     throw error;

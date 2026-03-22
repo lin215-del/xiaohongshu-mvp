@@ -3,9 +3,13 @@ import { SELECTORS } from '../config/selectors.js';
 
 const pickUploadInput = async (page: Page): Promise<Locator | null> => {
   for (const candidate of SELECTORS.imageInputCandidates) {
-    const locator = page.locator(candidate).first();
-    if ((await locator.count().catch(() => 0)) > 0) {
-      return locator;
+    const matches = page.locator(candidate);
+    const count = await matches.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      const locator = matches.nth(index);
+      if ((await locator.count().catch(() => 0)) > 0) {
+        return locator;
+      }
     }
   }
 
