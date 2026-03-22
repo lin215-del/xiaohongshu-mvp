@@ -77,6 +77,15 @@ const classifyFailure = (message: string): RuntimeFailureCode => {
   return 'unknown';
 };
 
+const writeRuntimeReport = async (report: PublishRuntimeReport): Promise<string> => {
+  const outDir = resolve('.runtime', 'reports');
+  await mkdir(outDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const outPath = resolve(outDir, `${report.command}-${report.accountId}-${stamp}.json`);
+  await writeFile(outPath, JSON.stringify(report, null, 2), 'utf8');
+  return outPath;
+};
+
 const buildRuntimeReport = async (
   page: Page,
   screenshotPath: string,
@@ -141,7 +150,8 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
   await tagHandler.apply(page, content.tags);
   const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
   const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-fill', content, mode, true, true, 'publish-fill completed');
-  logger.info('publish fill report', report as unknown as Record<string, unknown>);
+  const reportPath = await writeRuntimeReport(report);
+  logger.info('publish fill report', { ...report as unknown as Record<string, unknown>, reportPath });
   logger.warn('publish-fill completed; browser kept open for manual continuation');
 };
 
@@ -295,7 +305,8 @@ const runPublishCheck = async (): Promise<void> => {
       currentUrl: page.url(),
       screenshotPath
     });
-    logger.info('publish-check report', report as unknown as Record<string, unknown>);
+    const reportPath = await writeRuntimeReport(report);
+    logger.info('publish-check report', { ...report as unknown as Record<string, unknown>, reportPath });
 
     if (!keepOpen) return;
 
