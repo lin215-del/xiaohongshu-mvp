@@ -50,6 +50,22 @@ export interface PublishPreview {
   currentUrl?: string;
 }
 
+export interface PublishRuntimeReport {
+  command: 'publish-check' | 'publish-fill' | 'publish-open' | 'auth-check';
+  accountId: string;
+  currentUrl?: string;
+  mode?: 'video' | 'image' | 'unknown';
+  switched?: boolean;
+  imageCountHint?: number | null;
+  imageEditorReady?: boolean;
+  previewReady?: boolean;
+  titlePresent?: boolean;
+  bodyPresent?: boolean;
+  hasPublishButton?: boolean;
+  hasDraftButton?: boolean;
+  screenshotPath?: string;
+}
+
 export interface PublishOptions {
   headless?: boolean;
   requireConfirmation?: boolean;

@@ -11,7 +11,7 @@ import { PublishPage } from './publisher/publish-page.js';
 import { TagHandler } from './publisher/tag-handler.js';
 import { PopupHandler } from './guard/popup-handler.js';
 import { PublishWorkflow } from './workflow/publish-workflow.js';
-import type { PublishContent } from './types/publish.js';
+import type { PublishContent, PublishRuntimeReport } from './types/publish.js';
 import { logger } from './utils/logger.js';
 import { captureScreenshot } from './utils/screenshot.js';
 
@@ -68,28 +68,39 @@ const getPublishContentFromEnv = async (): Promise<PublishContent> => {
   };
 };
 
-const buildFilledPreview = async (page: Page, screenshotPath: string, content: PublishContent): Promise<Record<string, unknown>> => {
+const buildRuntimeReport = async (
+  page: Page,
+  screenshotPath: string,
+  accountId: string,
+  command: PublishRuntimeReport['command'],
+  content?: PublishContent,
+  mode?: 'video' | 'image' | 'unknown',
+  switched?: boolean
+): Promise<PublishRuntimeReport> => {
   const snapshot = await page.evaluate(({ expectedTitle, expectedBody }) => {
     const text = document.body?.innerText || '';
     const imageCountMatch = text.match(/(\d+)\/18/);
     const imageCountHint = imageCountMatch ? Number(imageCountMatch[1]) : null;
     return {
       currentUrl: location.href,
-      titlePresent: text.includes(expectedTitle),
-      bodyPresent: text.includes(expectedBody),
-      bodyCounterPresent: /0\s*\/\s*1000|\d+\s*\/\s*1000/.test(text),
+      titlePresent: expectedTitle ? text.includes(expectedTitle) : undefined,
+      bodyPresent: expectedBody ? text.includes(expectedBody) : undefined,
       imageCountHint,
       imageEditorReady: /图片编辑/.test(text) && (imageCountHint ?? 0) >= 1,
       previewReady: /笔记预览|封面预览/.test(text),
       hasPublishButton: /发布/.test(text),
       hasDraftButton: /暂存离开/.test(text)
     };
-  }, { expectedTitle: content.title, expectedBody: content.body }).catch(() => ({}));
+  }, { expectedTitle: content?.title, expectedBody: content?.body }).catch(() => ({}));
 
   return {
-    ...snapshot,
-    screenshotPath
-  };
+    command,
+    accountId,
+    mode,
+    switched,
+    screenshotPath,
+    ...snapshot
+  } as PublishRuntimeReport;
 };
 
 const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountId: string): Promise<void> => {
@@ -115,8 +126,8 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
   try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-fill-error'); throw error; }
   await tagHandler.apply(page, content.tags);
   const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
-  const preview = await buildFilledPreview(page, screenshotPath, content);
-  logger.info('publish fill preview', preview);
+  const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-fill', content, mode, true);
+  logger.info('publish fill report', report as unknown as Record<string, unknown>);
   logger.warn('publish-fill completed; browser kept open for manual continuation');
 };
 
@@ -260,6 +271,7 @@ const runPublishCheck = async (): Promise<void> => {
     const switched = await editor.switchToImagePostMode(page).catch(() => false);
     const probe = await editor.waitForEditableFields(page);
     const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-check');
+    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-check', undefined, probe.mode, switched);
 
     logger.info('publish-check diagnostics', {
       switched,
@@ -269,6 +281,7 @@ const runPublishCheck = async (): Promise<void> => {
       currentUrl: page.url(),
       screenshotPath
     });
+    logger.info('publish-check report', report as unknown as Record<string, unknown>);
 
     if (!keepOpen) return;
 
