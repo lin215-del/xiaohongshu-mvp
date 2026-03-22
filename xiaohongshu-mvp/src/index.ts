@@ -77,6 +77,10 @@ const classifyFailure = (message: string): RuntimeFailureCode => {
   return 'unknown';
 };
 
+const shouldRetry = (failureCode: RuntimeFailureCode): boolean => {
+  return failureCode === 'image_upload_failed' || failureCode === 'image_upload_not_ready' || failureCode === 'editor_not_ready';
+};
+
 const writeRuntimeReport = async (report: PublishRuntimeReport): Promise<string> => {
   const outDir = resolve('.runtime', 'reports');
   await mkdir(outDir, { recursive: true });
@@ -95,7 +99,9 @@ const buildRuntimeReport = async (
   mode?: 'video' | 'image' | 'unknown',
   switched?: boolean,
   ok: boolean = true,
-  message?: string
+  message?: string,
+  attempt?: number,
+  maxAttempts?: number
 ): Promise<PublishRuntimeReport> => {
   const snapshot = await page.evaluate(({ expectedTitle, expectedBody }) => {
     const text = document.body?.innerText || '';
@@ -119,6 +125,8 @@ const buildRuntimeReport = async (
     ok,
     failureCode: ok ? undefined : classifyFailure(message ?? ''),
     message,
+    attempt,
+    maxAttempts,
     mode,
     switched,
     screenshotPath,
@@ -337,22 +345,37 @@ const runPublishOpen = async (): Promise<void> => {
 const runPublishFill = async (): Promise<void> => {
   const accountId = process.env.XHS_ACCOUNT_ID ?? 'default';
   const content = await getPublishContentFromEnv();
-  const { browser, context, sessionManager } = await createContext(accountId);
-  try {
-    const page = await context.newPage();
-    await ensureLoginForPublish(page, accountId, sessionManager, context);
-    const publishPage = new PublishPage();
-    await publishPage.openImageMode(page);
-    logger.warn('image publish route opened; script will upload images first, then wait for editable fields to appear');
-    await fillCurrentPageOnly(page, content, accountId);
-    await waitForever();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error('publish-fill failed', { error: message });
-    throw error;
-  } finally {
-    await browser.close();
+  const maxAttempts = 3;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const { browser, context, sessionManager } = await createContext(accountId);
+    try {
+      const page = await context.newPage();
+      await ensureLoginForPublish(page, accountId, sessionManager, context);
+      const publishPage = new PublishPage();
+      await publishPage.openImageMode(page);
+      logger.warn('image publish route opened; script will upload images first, then wait for editable fields to appear', { attempt, maxAttempts });
+      await fillCurrentPageOnly(page, content, accountId);
+      await waitForever();
+      return;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const failureCode = classifyFailure(message);
+      logger.error('publish-fill failed', { error: message, failureCode, attempt, maxAttempts });
+
+      if (!shouldRetry(failureCode) || attempt >= maxAttempts) {
+        throw error;
+      }
+
+      logger.warn('publish-fill retry scheduled', { attempt, nextAttempt: attempt + 1, failureCode });
+    } finally {
+      await browser.close();
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'publish-fill failed'));
 };
 
 const main = async (): Promise<void> => {

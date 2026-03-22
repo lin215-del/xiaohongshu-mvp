@@ -64,6 +64,8 @@ export interface PublishRuntimeReport {
   ok?: boolean;
   failureCode?: RuntimeFailureCode;
   message?: string;
+  attempt?: number;
+  maxAttempts?: number;
   currentUrl?: string;
   mode?: 'video' | 'image' | 'unknown';
   switched?: boolean;
