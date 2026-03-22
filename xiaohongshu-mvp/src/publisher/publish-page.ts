@@ -15,4 +15,15 @@ export class PublishPage {
       throw new Error(`publish page redirected to login: ${page.url()}`);
     }
   }
+
+  async openImageMode(page: Page): Promise<void> {
+    const navigation = await navigateSafely(page, URLS.publishImage, { label: 'publish-page-open-image' });
+    if (!navigation.ok) {
+      throw new Error(`publish image page navigation failed: ${navigation.error ?? 'unknown navigation error'}`);
+    }
+
+    if (isLoginRedirectUrl(page.url())) {
+      throw new Error(`publish image page redirected to login: ${page.url()}`);
+    }
+  }
 }

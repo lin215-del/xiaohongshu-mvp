@@ -135,28 +135,42 @@ const exportVisibleDom = async (page: Page, accountId: string): Promise<string> 
   const outDir = resolve(PATHS.screenshotDir, '..', 'inspect');
   await mkdir(outDir, { recursive: true });
   const data = await page.evaluate(() => {
-    const visible = (el: Element) => {
-      const style = window.getComputedStyle(el as HTMLElement);
-      const rect = (el as HTMLElement).getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-    };
-    const simplify = (el: Element) => ({
-      tag: el.tagName.toLowerCase(),
-      text: (el.textContent || '').trim().slice(0, 120),
-      placeholder: (el as HTMLInputElement).placeholder || '',
-      className: (el as HTMLElement).className || '',
-      role: el.getAttribute('role') || '',
-      contenteditable: el.getAttribute('contenteditable') || '',
-      type: (el as HTMLInputElement).type || ''
-    });
-    return {
-      url: location.href,
-      title: document.title,
-      inputs: Array.from(document.querySelectorAll('input, textarea')).filter(visible).map(simplify),
-      editables: Array.from(document.querySelectorAll('[contenteditable="true"], [contenteditable=""], .ql-editor')).filter(visible).map(simplify),
-      buttons: Array.from(document.querySelectorAll('button, [role="tab"], [class*="tab"]')).filter(visible).map(simplify),
-      texts: Array.from(document.querySelectorAll('div, span, p')).filter(visible).map(simplify).filter((x) => x.text).slice(0, 200)
-    };
+    return Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"], [contenteditable=""], .ql-editor, button, [role="tab"], [class*="tab"], div, span, p'))
+      .map((element) => {
+        const html = element as HTMLElement;
+        const style = window.getComputedStyle(html);
+        const rect = html.getBoundingClientRect();
+        const visible = style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+
+        return {
+          visible,
+          tag: element.tagName.toLowerCase(),
+          text: (element.textContent || '').trim().slice(0, 120),
+          placeholder: (element as HTMLInputElement).placeholder || '',
+          className: html.className || '',
+          role: element.getAttribute('role') || '',
+          contenteditable: element.getAttribute('contenteditable') || '',
+          type: (element as HTMLInputElement).type || ''
+        };
+      })
+      .filter((item) => item.visible)
+      .reduce(
+        (acc, item) => {
+          if (item.tag === 'input' || item.tag === 'textarea') acc.inputs.push(item);
+          if (item.contenteditable || item.className.includes('ql-editor')) acc.editables.push(item);
+          if (item.tag === 'button' || item.role === 'tab' || item.className.includes('tab')) acc.buttons.push(item);
+          if (item.text) acc.texts.push(item);
+          return acc;
+        },
+        {
+          url: location.href,
+          title: document.title,
+          inputs: [] as Array<Record<string, string | boolean>>,
+          editables: [] as Array<Record<string, string | boolean>>,
+          buttons: [] as Array<Record<string, string | boolean>>,
+          texts: [] as Array<Record<string, string | boolean>>
+        }
+      );
   });
   const outPath = resolve(outDir, `${accountId}-publish-inspect.json`);
   await writeFile(outPath, JSON.stringify(data, null, 2), 'utf8');
@@ -171,8 +185,8 @@ const runPublishInspect = async (): Promise<void> => {
     await ensureLoginForPublish(page, accountId, sessionManager, context);
     const publishPage = new PublishPage();
     await publishPage.open(page);
-    logger.warn('if needed, manually switch page/tab now; inspector will capture current visible DOM in 10 seconds');
-    await page.waitForTimeout(10_000);
+    logger.warn('if needed, manually switch page/tab now; inspector will capture current visible DOM in 15 seconds');
+    await page.waitForTimeout(15_000);
     const inspectPath = await exportVisibleDom(page, accountId);
     const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-inspect');
     logger.info('publish inspect exported', { inspectPath, screenshotPath, currentUrl: page.url() });

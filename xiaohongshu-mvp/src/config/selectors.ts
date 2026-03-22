@@ -42,6 +42,9 @@ export const SELECTORS: SelectorConfig = {
     '[role="img"]'
   ],
   publishTypeTabCandidates: [
+    '.creator-tab:has-text("上传图文")',
+    '.header-tabs .creator-tab:has-text("上传图文")',
+    'div.creator-tab:has-text("上传图文")',
     'text=上传图文',
     'button:has-text("上传图文")',
     '[role="tab"]:has-text("上传图文")',
@@ -49,11 +52,15 @@ export const SELECTORS: SelectorConfig = {
     'text=图文'
   ],
   videoModeAnchors: [
+    '.creator-tab.active:has-text("上传视频")',
+    'div.creator-tab.active:has-text("上传视频")',
     'text=上传视频',
     'button:has-text("上传视频")',
     'text=/拖拽视频到此处|点击上传视频|上传视频/'
   ],
   imageModeAnchors: [
+    '.creator-tab.active:has-text("上传图文")',
+    'div.creator-tab.active:has-text("上传图文")',
     'text=上传图文',
     'text=/上传图片|添加图片|拖拽图片到此处|上传封面图/'
   ],

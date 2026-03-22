@@ -3,6 +3,7 @@ export const APP_NAME = 'xiaohongshu-mvp';
 export const URLS = {
   home: 'https://creator.xiaohongshu.com/',
   publish: 'https://creator.xiaohongshu.com/publish/publish',
+  publishImage: 'https://creator.xiaohongshu.com/publish/publish?from=tab_switch&target=image',
   login: 'https://creator.xiaohongshu.com/login'
 } as const;
 
