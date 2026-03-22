@@ -59,7 +59,7 @@ export type RuntimeFailureCode =
   | 'unknown';
 
 export interface PublishRuntimeReport {
-  command: 'publish-check' | 'publish-fill' | 'publish-open' | 'auth-check';
+  command: 'publish-check' | 'publish-fill' | 'publish-open' | 'auth-check' | 'smoke';
   accountId: string;
   ok?: boolean;
   failureCode?: RuntimeFailureCode;

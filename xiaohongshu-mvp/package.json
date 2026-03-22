@@ -13,7 +13,8 @@
     "publish:check": "tsx src/index.ts publish-check",
     "publish:open": "tsx src/index.ts publish-open",
     "publish:fill": "tsx src/index.ts publish-fill",
-    "publish:inspect": "tsx src/index.ts publish-inspect"
+    "publish:inspect": "tsx src/index.ts publish-inspect",
+    "smoke": "tsx src/index.ts smoke"
   },
   "engines": {
     "node": ">=20"

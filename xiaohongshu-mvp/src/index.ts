@@ -5,15 +5,23 @@ import { LoginChecker } from './auth/login-checker.js';
 import { QrLoginWatcher } from './auth/qr-login.js';
 import { SessionManager } from './auth/session-manager.js';
 import { LIMITS, PATHS } from './config/constants.js';
+import { PopupHandler } from './guard/popup-handler.js';
 import { Editor } from './publisher/editor.js';
 import { ImageUploader } from './publisher/image-uploader.js';
 import { PublishPage } from './publisher/publish-page.js';
 import { TagHandler } from './publisher/tag-handler.js';
-import { PopupHandler } from './guard/popup-handler.js';
-import { PublishWorkflow } from './workflow/publish-workflow.js';
-import type { PublishContent, PublishRuntimeReport, RuntimeFailureCode } from './types/publish.js';
+import type { PublishContent } from './types/publish.js';
 import { logger } from './utils/logger.js';
+import {
+  buildRuntimeReport,
+  classifyFailure,
+  collectRuntimeSnapshot,
+  createRuntimeSnapshotFromText,
+  shouldRetryRuntimeFailure,
+  writeRuntimeReport
+} from './utils/runtime-report.js';
 import { captureScreenshot } from './utils/screenshot.js';
+import { PublishWorkflow } from './workflow/publish-workflow.js';
 
 const demoContent: PublishContent = {
   title: 'MVP 骨架演示',
@@ -40,7 +48,12 @@ const createContext = async (accountId: string): Promise<{ browser: Browser; con
 };
 
 const fileExists = async (targetPath: string): Promise<boolean> => {
-  try { await access(targetPath); return true; } catch { return false; }
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const buildDebugScreenshotPath = (accountId: string, label: string): string => {
@@ -68,73 +81,6 @@ const getPublishContentFromEnv = async (): Promise<PublishContent> => {
   };
 };
 
-const classifyFailure = (message: string): RuntimeFailureCode => {
-  if (/login|扫码|401/.test(message)) return 'login_required';
-  if (/publish route|publish page navigation|image page/.test(message)) return 'publish_route_unavailable';
-  if (/image upload input not found|filechooser|upload input/.test(message)) return 'image_upload_failed';
-  if (/stable post-upload editor state/.test(message)) return 'image_upload_not_ready';
-  if (/title input not found|body editor not found|editor/.test(message)) return 'editor_not_ready';
-  return 'unknown';
-};
-
-const shouldRetry = (failureCode: RuntimeFailureCode): boolean => {
-  return failureCode === 'image_upload_failed' || failureCode === 'image_upload_not_ready' || failureCode === 'editor_not_ready';
-};
-
-const writeRuntimeReport = async (report: PublishRuntimeReport): Promise<PublishRuntimeReport> => {
-  const outDir = resolve('.runtime', 'reports');
-  await mkdir(outDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outPath = resolve(outDir, `${report.command}-${report.accountId}-${stamp}.json`);
-  const nextReport = { ...report, reportPath: outPath };
-  await writeFile(outPath, JSON.stringify(nextReport, null, 2), 'utf8');
-  return nextReport;
-};
-
-const buildRuntimeReport = async (
-  page: Page,
-  screenshotPath: string,
-  accountId: string,
-  command: PublishRuntimeReport['command'],
-  content?: PublishContent,
-  mode?: 'video' | 'image' | 'unknown',
-  switched?: boolean,
-  ok: boolean = true,
-  message?: string,
-  attempt?: number,
-  maxAttempts?: number
-): Promise<PublishRuntimeReport> => {
-  const snapshot = await page.evaluate(({ expectedTitle, expectedBody }) => {
-    const text = document.body?.innerText || '';
-    const imageCountMatch = text.match(/(\d+)\/18/);
-    const imageCountHint = imageCountMatch ? Number(imageCountMatch[1]) : null;
-    return {
-      currentUrl: location.href,
-      titlePresent: expectedTitle ? text.includes(expectedTitle) : undefined,
-      bodyPresent: expectedBody ? text.includes(expectedBody) : undefined,
-      imageCountHint,
-      imageEditorReady: /图片编辑/.test(text) && (imageCountHint ?? 0) >= 1,
-      previewReady: /笔记预览|封面预览/.test(text),
-      hasPublishButton: /发布/.test(text),
-      hasDraftButton: /暂存离开/.test(text)
-    };
-  }, { expectedTitle: content?.title, expectedBody: content?.body }).catch(() => ({}));
-
-  return {
-    command,
-    accountId,
-    ok,
-    failureCode: ok ? undefined : classifyFailure(message ?? ''),
-    message,
-    attempt,
-    maxAttempts,
-    mode,
-    switched,
-    screenshotPath,
-    ...snapshot
-  } as PublishRuntimeReport;
-};
-
 const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountId: string): Promise<void> => {
   const editor = new Editor();
   const imageUploader = new ImageUploader();
@@ -155,42 +101,30 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
     await page.waitForTimeout(3_000).catch(() => undefined);
   }
 
-  try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-fill-error'); throw error; }
+  try {
+    await editor.fill(page, { title: content.title, body: content.body });
+  } catch (error) {
+    await logPageDiagnostics(page, accountId, 'publish-fill-error');
+    throw error;
+  }
+
   await tagHandler.apply(page, content.tags);
   const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
-  const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-fill', content, mode, true, true, 'publish-fill completed');
+  const snapshot = await collectRuntimeSnapshot(page, content);
+  const report = buildRuntimeReport({
+    command: 'publish-fill',
+    accountId,
+    screenshotPath,
+    content,
+    mode,
+    switched: true,
+    ok: true,
+    message: 'publish-fill completed',
+    snapshot
+  });
   const persistedReport = await writeRuntimeReport(report);
   logger.info('publish fill report', persistedReport as unknown as Record<string, unknown>);
   logger.warn('publish-fill completed; browser kept open for manual continuation');
-};
-
-const fillPublishPage = async (page: Page, content: PublishContent, accountId: string): Promise<void> => {
-  const publishPage = new PublishPage();
-  const editor = new Editor();
-  const imageUploader = new ImageUploader();
-  const tagHandler = new TagHandler();
-  const popupHandler = new PopupHandler();
-  await publishPage.openImageMode(page);
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(LIMITS.publishPageWaitMs);
-  await popupHandler.dismissCommonPopups(page).catch(() => 0);
-  const mode = await editor.detectMode(page);
-  logger.info('publish page opened', { currentUrl: page.url(), mode });
-
-  let uploaded = 0;
-  if (content.imagePaths.length > 0) {
-    uploaded = await imageUploader.upload(page, content.imagePaths).catch(async (error: unknown) => {
-      logger.warn('image upload skipped', { error: error instanceof Error ? error.message : String(error) });
-      await logPageDiagnostics(page, accountId, 'publish-image-upload-warning');
-      return 0;
-    });
-    if (uploaded > 0) await page.waitForTimeout(3_000).catch(() => undefined);
-  }
-
-  try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-editor-error'); throw error; }
-  await tagHandler.apply(page, content.tags);
-  await logPageDiagnostics(page, accountId, 'publish-check-finished');
-  logger.info('publish page check completed', { title: content.title, tagCount: content.tags.length, uploaded, currentUrl: page.url() });
 };
 
 const ensureLoginForPublish = async (page: Page, accountId: string, sessionManager: SessionManager, context: BrowserContext): Promise<void> => {
@@ -203,14 +137,23 @@ const ensureLoginForPublish = async (page: Page, accountId: string, sessionManag
     logger.info('qr login result', qrResult as unknown as Record<string, unknown>);
     if (!qrResult.scanned) throw new Error(qrResult.message);
   }
+
   const publishAccess = await loginChecker.verifyPublishAccess(page);
   logger.info('publish access verification', publishAccess as unknown as Record<string, unknown>);
   if (!publishAccess.loggedIn) {
     await logPageDiagnostics(page, accountId, 'auth-publish-access-failed');
     throw new Error(`login not usable for publish page: ${publishAccess.reason}`);
   }
+
   const savedStorageStatePath = await sessionManager.saveContextState(accountId, context);
-  const metadataPath = await sessionManager.save({ accountId, sessionFile: savedStorageStatePath, storageStatePath: savedStorageStatePath, updatedAt: new Date().toISOString(), isLoggedIn: true, lastLoginUrl: page.url() });
+  const metadataPath = await sessionManager.save({
+    accountId,
+    sessionFile: savedStorageStatePath,
+    storageStatePath: savedStorageStatePath,
+    updatedAt: new Date().toISOString(),
+    isLoggedIn: true,
+    lastLoginUrl: page.url()
+  });
   logger.info('session saved', { metadataPath, storageStatePath: savedStorageStatePath, accountId });
 };
 
@@ -287,11 +230,22 @@ const runAuthCheck = async (): Promise<void> => {
     const page = await context.newPage();
     await ensureLoginForPublish(page, accountId, sessionManager, context);
     const screenshotPath = await logPageDiagnostics(page, accountId, 'auth-check');
-    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'auth-check', undefined, 'unknown', undefined, true, 'auth-check completed');
+    const snapshot = await collectRuntimeSnapshot(page);
+    const report = buildRuntimeReport({
+      command: 'auth-check',
+      accountId,
+      screenshotPath,
+      mode: 'unknown',
+      ok: true,
+      message: 'auth-check completed',
+      snapshot
+    });
     const persistedReport = await writeRuntimeReport(report);
     logger.info('auth-check report', persistedReport as unknown as Record<string, unknown>);
     if (keepOpen) await waitForever();
-  } finally { if (!keepOpen) await browser.close(); }
+  } finally {
+    if (!keepOpen) await browser.close();
+  }
 };
 
 const runPublishCheck = async (): Promise<void> => {
@@ -308,7 +262,17 @@ const runPublishCheck = async (): Promise<void> => {
     const switched = await editor.switchToImagePostMode(page).catch(() => false);
     const probe = await editor.waitForEditableFields(page);
     const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-check');
-    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-check', undefined, probe.mode, switched, true, 'publish-check completed');
+    const snapshot = await collectRuntimeSnapshot(page);
+    const report = buildRuntimeReport({
+      command: 'publish-check',
+      accountId,
+      screenshotPath,
+      mode: probe.mode,
+      switched,
+      ok: true,
+      message: 'publish-check completed',
+      snapshot
+    });
 
     logger.info('publish-check diagnostics', {
       switched,
@@ -340,7 +304,16 @@ const runPublishOpen = async (): Promise<void> => {
     const publishPage = new PublishPage();
     await publishPage.open(page);
     const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-open');
-    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-open', undefined, 'unknown', undefined, true, 'publish-open completed');
+    const snapshot = await collectRuntimeSnapshot(page);
+    const report = buildRuntimeReport({
+      command: 'publish-open',
+      accountId,
+      screenshotPath,
+      mode: 'unknown',
+      ok: true,
+      message: 'publish-open completed',
+      snapshot
+    });
     const persistedReport = await writeRuntimeReport(report);
     logger.info('publish-open report', persistedReport as unknown as Record<string, unknown>);
     logger.warn('publish-open completed; browser will stay open for manual continuation and no real submit was executed');
@@ -373,7 +346,7 @@ const runPublishFill = async (): Promise<void> => {
       const failureCode = classifyFailure(message);
       logger.error('publish-fill failed', { error: message, failureCode, attempt, maxAttempts });
 
-      if (!shouldRetry(failureCode) || attempt >= maxAttempts) {
+      if (!shouldRetryRuntimeFailure(failureCode) || attempt >= maxAttempts) {
         throw error;
       }
 
@@ -386,6 +359,53 @@ const runPublishFill = async (): Promise<void> => {
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'publish-fill failed'));
 };
 
+const runSmoke = async (): Promise<void> => {
+  const accountId = process.env.XHS_ACCOUNT_ID ?? 'smoke';
+  const envContent = await getPublishContentFromEnv();
+  const content: PublishContent = {
+    ...envContent,
+    imagePaths: envContent.imagePaths.length > 0 ? envContent.imagePaths : ['smoke-placeholder.png']
+  };
+  const workflow = new PublishWorkflow();
+  const workflowResult = await workflow.run({
+    content,
+    options: { dryRun: true, requireConfirmation: false }
+  });
+
+  const syntheticText = [
+    '图片编辑',
+    '1/18',
+    '填写标题会有更多赞哦',
+    content.title,
+    '输入正文描述，真诚有价值的分享予人温暖',
+    content.body,
+    '发布',
+    '暂存离开',
+    '笔记预览'
+  ].join('\n');
+
+  const report = buildRuntimeReport({
+    command: 'smoke',
+    accountId,
+    mode: 'image',
+    switched: true,
+    ok: workflowResult.success,
+    message: workflowResult.message,
+    snapshot: {
+      currentUrl: 'https://creator.xiaohongshu.com/publish/publish?from=tab_switch&target=image',
+      ...createRuntimeSnapshotFromText(syntheticText, content)
+    }
+  });
+  const persistedReport = await writeRuntimeReport(report);
+
+  logger.info('smoke completed', {
+    workflowSuccess: workflowResult.success,
+    stage: workflowResult.stage,
+    reportPath: persistedReport.reportPath,
+    failureCode: persistedReport.failureCode
+  });
+};
+
 const main = async (): Promise<void> => {
   const command = process.argv[2] ?? 'demo';
   if (command === 'auth-check') return runAuthCheck();
@@ -393,6 +413,7 @@ const main = async (): Promise<void> => {
   if (command === 'publish-open') return runPublishOpen();
   if (command === 'publish-fill') return runPublishFill();
   if (command === 'publish-inspect') return runPublishInspect();
+  if (command === 'smoke') return runSmoke();
   return runWorkflowDemo();
 };
 

@@ -138,7 +138,19 @@ npm run publish:fill
 - 默认**不会点击真实发布按钮**
 - 若你将来明确需要接真实发布，可显式设置：`XHS_ENABLE_REAL_PUBLISH=true`
 
-### 5) 发布页联调检查（不执行真实提交）
+### 5) CLI smoke test（无浏览器、无真实发布）
+
+```bash
+npm run smoke
+```
+
+说明：
+- 不依赖真实登录态
+- 不打开浏览器
+- 会执行 dry-run 工作流并产出一份标准化 runtime report
+- 适合作为最小回归检查，验证 CLI、report 落盘、结果对象封装没有回退
+
+### 6) 发布页联调检查（不执行真实提交）
 
 ```bash
 npm run publish:check
