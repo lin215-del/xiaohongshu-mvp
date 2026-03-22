@@ -82,7 +82,11 @@ export const SELECTORS: SelectorConfig = {
     '[class*="editor"] [contenteditable="true"]'
   ],
   imageInputCandidates: [
+    'input.upload-input[type="file"]',
+    '.drag-over input.upload-input[type="file"]',
+    '.upload-content input.upload-input[type="file"]',
     'input[type="file"][accept*="image"]',
+    'input[type="file"][accept*=".jpg"]',
     'input[type="file"]',
     '.image-upload-buttons input[type="file"]',
     '.upload-content input[type="file"]'
