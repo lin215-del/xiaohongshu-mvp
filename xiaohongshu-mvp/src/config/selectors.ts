@@ -67,26 +67,31 @@ export const SELECTORS: SelectorConfig = {
   titleInputCandidates: [
     'input[placeholder*="标题"]',
     'textarea[placeholder*="标题"]',
+    '[contenteditable="true"][data-placeholder*="标题"]',
+    'text=填写标题会有更多赞哦',
     'input[maxlength]',
     'input[type="text"]',
-    '[contenteditable="true"][data-placeholder*="标题"]',
     '[class*="title"] input',
     '[class*="header"] input'
   ],
   bodyEditorCandidates: [
-    '[contenteditable="true"]',
     'textarea[placeholder*="正文"]',
+    '[contenteditable="true"]',
     '.ql-editor',
+    'text=输入正文描述，真诚有价值的分享予人温暖',
     '[class*="editor"] [contenteditable="true"]'
   ],
   imageInputCandidates: [
+    'input[type="file"][accept*="image"]',
     'input[type="file"]',
-    'input[type="file"][accept*="image"]'
+    '.image-upload-buttons input[type="file"]',
+    '.upload-content input[type="file"]'
   ],
   tagInputCandidates: [
     'input[placeholder*="话题"]',
     'input[placeholder*="标签"]',
-    'input[placeholder*="添加标签"]'
+    'input[placeholder*="添加标签"]',
+    'text=# 话题'
   ],
   submitButtonCandidates: [
     'button:has-text("发布")',

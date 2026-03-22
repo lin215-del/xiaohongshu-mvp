@@ -241,13 +241,19 @@ export class Editor {
 
     const probed = await this.waitForEditableFields(page);
     const currentMode = probed.mode;
-    const titleInput = probed.titleInput;
-    const bodyEditor = probed.bodyEditor;
+    let titleInput = probed.titleInput;
+    let bodyEditor = probed.bodyEditor;
 
     if (!titleInput && !bodyEditor && currentMode === 'video') {
       throw new Error(
         `publish page is still in video mode, and no editable fields were found (before=${beforeMode}, after=${currentMode})`
       );
+    }
+
+    if ((!titleInput || !bodyEditor) && currentMode === 'image') {
+      const sharedEditable = await pickFirstVisible(page, ['[contenteditable="true"]', 'textarea', '.ql-editor']);
+      if (!titleInput) titleInput = sharedEditable;
+      if (!bodyEditor) bodyEditor = sharedEditable;
     }
 
     if (!titleInput) {
@@ -265,8 +271,18 @@ export class Editor {
       await titleInput.evaluate((element, value) => {
         if (element instanceof HTMLElement) {
           element.focus();
-          element.textContent = value;
-          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+          if (element.isContentEditable) {
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.collapse(true);
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            document.execCommand('insertText', false, value);
+          } else {
+            element.textContent = value;
+            element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+          }
         }
       }, content.title);
     }
@@ -288,8 +304,12 @@ export class Editor {
     await bodyEditor.evaluate((element, value) => {
       if (element instanceof HTMLElement) {
         element.focus();
-        element.textContent = value;
-        element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+        if (element.isContentEditable) {
+          document.execCommand('insertText', false, `\n${value}`);
+        } else {
+          element.textContent = `${element.textContent || ''}\n${value}`;
+          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+        }
       }
     }, content.body);
   }
