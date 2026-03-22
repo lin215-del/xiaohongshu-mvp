@@ -1,26 +1,37 @@
 import type { Locator, Page } from 'playwright';
 import { SELECTORS } from '../config/selectors.js';
 
-const waitForUploadReady = async (page: Page, timeoutMs: number = 20_000): Promise<void> => {
+const waitForUploadReady = async (page: Page, timeoutMs: number = 30_000): Promise<void> => {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
     const settled = await page.evaluate(() => {
       const text = document.body?.innerText || '';
       const hasImageEditor = /图片编辑/.test(text);
-      const hasImageCount = /\d+\/18/.test(text);
+      const imageCountMatch = text.match(/(\d+)\/18/);
+      const imageCount = imageCountMatch ? Number(imageCountMatch[1]) : 0;
       const hasUploadPrompt = /上传图片，或写文字生成图片/.test(text);
+      const hasCoverSuggestion = /获取封面建议/.test(text);
+      const hasPreviewTabs = /笔记预览|封面预览/.test(text);
+      const hasDeleteControl = /删除|移除/.test(text);
+      const hasTitleAnchor = /填写标题会有更多赞哦/.test(text);
+      const hasBodyAnchor = /输入正文描述，真诚有价值的分享予人温暖/.test(text);
       const hasSpinner = Array.from(document.querySelectorAll('*')).some((element) => {
         const html = element as HTMLElement;
         const className = typeof html.className === 'string' ? html.className : '';
         return /loading|spinner|progress/i.test(className);
       });
-      return (hasImageEditor || hasImageCount) && !hasSpinner && !hasUploadPrompt;
+
+      const strongReady = hasImageEditor && imageCount >= 1 && (hasCoverSuggestion || hasPreviewTabs || hasDeleteControl);
+      const editorReady = hasTitleAnchor || hasBodyAnchor;
+      return (strongReady || editorReady) && !hasSpinner && !hasUploadPrompt;
     }).catch(() => false);
 
     if (settled) return;
     await page.waitForTimeout(1_000).catch(() => undefined);
   }
+
+  throw new Error('image upload did not reach a stable post-upload editor state within timeout');
 };
 
 const pickUploadInput = async (page: Page, timeoutMs: number = 20_000): Promise<Locator | null> => {

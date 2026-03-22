@@ -72,12 +72,15 @@ const buildFilledPreview = async (page: Page, screenshotPath: string, content: P
   const snapshot = await page.evaluate(({ expectedTitle, expectedBody }) => {
     const text = document.body?.innerText || '';
     const imageCountMatch = text.match(/(\d+)\/18/);
+    const imageCountHint = imageCountMatch ? Number(imageCountMatch[1]) : null;
     return {
       currentUrl: location.href,
       titlePresent: text.includes(expectedTitle),
       bodyPresent: text.includes(expectedBody),
       bodyCounterPresent: /0\s*\/\s*1000|\d+\s*\/\s*1000/.test(text),
-      imageCountHint: imageCountMatch ? Number(imageCountMatch[1]) : null,
+      imageCountHint,
+      imageEditorReady: /图片编辑/.test(text) && (imageCountHint ?? 0) >= 1,
+      previewReady: /笔记预览|封面预览/.test(text),
       hasPublishButton: /发布/.test(text),
       hasDraftButton: /暂存离开/.test(text)
     };
