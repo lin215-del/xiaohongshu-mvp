@@ -50,9 +50,20 @@ export interface PublishPreview {
   currentUrl?: string;
 }
 
+export type RuntimeFailureCode =
+  | 'login_required'
+  | 'publish_route_unavailable'
+  | 'image_upload_not_ready'
+  | 'image_upload_failed'
+  | 'editor_not_ready'
+  | 'unknown';
+
 export interface PublishRuntimeReport {
   command: 'publish-check' | 'publish-fill' | 'publish-open' | 'auth-check';
   accountId: string;
+  ok?: boolean;
+  failureCode?: RuntimeFailureCode;
+  message?: string;
   currentUrl?: string;
   mode?: 'video' | 'image' | 'unknown';
   switched?: boolean;

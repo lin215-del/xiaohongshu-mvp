@@ -11,7 +11,7 @@ import { PublishPage } from './publisher/publish-page.js';
 import { TagHandler } from './publisher/tag-handler.js';
 import { PopupHandler } from './guard/popup-handler.js';
 import { PublishWorkflow } from './workflow/publish-workflow.js';
-import type { PublishContent, PublishRuntimeReport } from './types/publish.js';
+import type { PublishContent, PublishRuntimeReport, RuntimeFailureCode } from './types/publish.js';
 import { logger } from './utils/logger.js';
 import { captureScreenshot } from './utils/screenshot.js';
 
@@ -68,6 +68,15 @@ const getPublishContentFromEnv = async (): Promise<PublishContent> => {
   };
 };
 
+const classifyFailure = (message: string): RuntimeFailureCode => {
+  if (/login|扫码|401/.test(message)) return 'login_required';
+  if (/publish route|publish page navigation|image page/.test(message)) return 'publish_route_unavailable';
+  if (/image upload input not found|filechooser|upload input/.test(message)) return 'image_upload_failed';
+  if (/stable post-upload editor state/.test(message)) return 'image_upload_not_ready';
+  if (/title input not found|body editor not found|editor/.test(message)) return 'editor_not_ready';
+  return 'unknown';
+};
+
 const buildRuntimeReport = async (
   page: Page,
   screenshotPath: string,
@@ -75,7 +84,9 @@ const buildRuntimeReport = async (
   command: PublishRuntimeReport['command'],
   content?: PublishContent,
   mode?: 'video' | 'image' | 'unknown',
-  switched?: boolean
+  switched?: boolean,
+  ok: boolean = true,
+  message?: string
 ): Promise<PublishRuntimeReport> => {
   const snapshot = await page.evaluate(({ expectedTitle, expectedBody }) => {
     const text = document.body?.innerText || '';
@@ -96,6 +107,9 @@ const buildRuntimeReport = async (
   return {
     command,
     accountId,
+    ok,
+    failureCode: ok ? undefined : classifyFailure(message ?? ''),
+    message,
     mode,
     switched,
     screenshotPath,
@@ -126,7 +140,7 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
   try { await editor.fill(page, { title: content.title, body: content.body }); } catch (error) { await logPageDiagnostics(page, accountId, 'publish-fill-error'); throw error; }
   await tagHandler.apply(page, content.tags);
   const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
-  const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-fill', content, mode, true);
+  const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-fill', content, mode, true, true, 'publish-fill completed');
   logger.info('publish fill report', report as unknown as Record<string, unknown>);
   logger.warn('publish-fill completed; browser kept open for manual continuation');
 };
@@ -271,7 +285,7 @@ const runPublishCheck = async (): Promise<void> => {
     const switched = await editor.switchToImagePostMode(page).catch(() => false);
     const probe = await editor.waitForEditableFields(page);
     const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-check');
-    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-check', undefined, probe.mode, switched);
+    const report = await buildRuntimeReport(page, screenshotPath, accountId, 'publish-check', undefined, probe.mode, switched, true, 'publish-check completed');
 
     logger.info('publish-check diagnostics', {
       switched,
@@ -322,7 +336,8 @@ const runPublishFill = async (): Promise<void> => {
     await fillCurrentPageOnly(page, content, accountId);
     await waitForever();
   } catch (error) {
-    logger.error('publish-fill failed', { error: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('publish-fill failed', { error: message });
     throw error;
   } finally {
     await browser.close();
