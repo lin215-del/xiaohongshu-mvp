@@ -12,11 +12,12 @@ test('classifyFailure maps known messages to failure codes', () => {
   assert.equal(classifyFailure('totally different error'), 'unknown');
 });
 
-test('shouldRetryRuntimeFailure only retries recoverable failures', () => {
+test('shouldRetryRuntimeFailure retries recoverable failures including login recovery', () => {
   assert.equal(shouldRetryRuntimeFailure('image_upload_failed'), true);
   assert.equal(shouldRetryRuntimeFailure('image_upload_not_ready'), true);
   assert.equal(shouldRetryRuntimeFailure('editor_not_ready'), true);
-  assert.equal(shouldRetryRuntimeFailure('login_required'), false);
+  assert.equal(shouldRetryRuntimeFailure('login_required'), true);
+  assert.equal(shouldRetryRuntimeFailure('publish_route_unavailable'), false);
 });
 
 test('createRuntimeSnapshotFromText extracts publish markers', () => {

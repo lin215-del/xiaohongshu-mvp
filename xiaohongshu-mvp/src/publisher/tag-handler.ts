@@ -23,15 +23,28 @@ const appendTagsToEditor = async (page: Page, tags: string[]): Promise<boolean> 
 
   if (tagName === 'textarea' || tagName === 'input') {
     const currentValue = await editor.inputValue().catch(() => '');
-    await editor.fill(`${currentValue}${currentValue ? '\n' : ''}${normalizedText}`.trim()).catch(() => undefined);
+    const nextValue = `${currentValue.trim()}${currentValue.trim() ? '\n' : ''}${normalizedText}`.trim();
+    await editor.fill(nextValue).catch(() => undefined);
     return true;
   }
 
   await editor.evaluate((element, value) => {
-    if (element instanceof HTMLElement) {
-      element.focus();
-      document.execCommand('insertText', false, ` ${value}`);
+    if (!(element instanceof HTMLElement)) return;
+    element.focus();
+
+    if (element.isContentEditable) {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.execCommand('insertText', false, `${element.textContent?.trim() ? '\n' : ''}${value}`);
+      return;
     }
+
+    element.textContent = `${(element.textContent || '').trim()}${element.textContent?.trim() ? '\n' : ''}${value}`;
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
   }, normalizedText).catch(() => undefined);
   return true;
 };
@@ -56,7 +69,7 @@ export class TagHandler {
 
       if (tagName === 'input' || tagName === 'textarea') {
         await input.fill('').catch(() => undefined);
-        await input.fill(normalized);
+        await input.fill(normalized).catch(() => undefined);
         await input.press('Enter').catch(() => undefined);
       } else if (role === 'button' || normalized.includes('#')) {
         const appended = await appendTagsToEditor(page, [normalized]);

@@ -131,6 +131,7 @@ npm run publish:fill
 
 说明：
 - 脚本会自动进入图文发布路由
+- 未显式传入 `XHS_IMAGE_PATH` 时，会默认使用项目内置演示图片 `assets/demo-upload.png`
 - 自动尝试上传图片
 - 自动填写标题 / 正文
 - 标签在独立输入不可用时，会 fallback 为正文中的 `#标签`

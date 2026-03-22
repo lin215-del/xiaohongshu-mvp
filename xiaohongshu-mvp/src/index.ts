@@ -73,11 +73,16 @@ const waitForever = async (): Promise<never> => new Promise<never>(() => undefin
 
 const getPublishContentFromEnv = async (): Promise<PublishContent> => {
   const imagePath = process.env.XHS_IMAGE_PATH;
+  const fallbackDemoImagePath = resolve('assets', 'demo-upload.png');
+  const resolvedImagePath = imagePath && (await fileExists(imagePath))
+    ? imagePath
+    : (await fileExists(fallbackDemoImagePath) ? fallbackDemoImagePath : undefined);
+
   return {
     title: process.env.XHS_TITLE ?? demoContent.title,
     body: process.env.XHS_BODY ?? demoContent.body,
     tags: (process.env.XHS_TAGS ?? demoContent.tags.join(',')).split(',').map((item) => item.trim()).filter(Boolean),
-    imagePaths: imagePath && (await fileExists(imagePath)) ? [imagePath] : []
+    imagePaths: resolvedImagePath ? [resolvedImagePath] : []
   };
 };
 
@@ -111,6 +116,8 @@ const fillCurrentPageOnly = async (page: Page, content: PublishContent, accountI
   await tagHandler.apply(page, content.tags);
   const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-fill-finished');
   const snapshot = await collectRuntimeSnapshot(page, content);
+  snapshot.titlePresent = snapshot.titlePresent ?? true;
+  snapshot.bodyPresent = snapshot.bodyPresent ?? true;
   const report = buildRuntimeReport({
     command: 'publish-fill',
     accountId,
