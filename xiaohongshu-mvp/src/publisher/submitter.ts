@@ -4,6 +4,8 @@ import { SELECTORS } from '../config/selectors.js';
 export interface SubmitResult {
   submitted: boolean;
   message: string;
+  submitButtonFound?: boolean;
+  realPublishEnabled?: boolean;
 }
 
 const pickSubmitButton = async (page: Page): Promise<Locator | null> => {
@@ -21,13 +23,25 @@ export class Submitter {
   async submit(page: Page): Promise<SubmitResult> {
     const button = await pickSubmitButton(page);
     if (!button) {
-      return { submitted: false, message: 'submit button not found' };
+      return { submitted: false, message: 'submit button not found', submitButtonFound: false, realPublishEnabled: false };
     }
 
-    // 当前版本明确不执行真实发布。即便检测到按钮，也只返回“可提交但未提交”的诊断结果。
+    const realPublishEnabled = process.env.XHS_ENABLE_REAL_PUBLISH === 'true';
+    if (!realPublishEnabled) {
+      return {
+        submitted: false,
+        message: 'submit button detected but no real submit was executed (set XHS_ENABLE_REAL_PUBLISH=true to enable)',
+        submitButtonFound: true,
+        realPublishEnabled: false
+      };
+    }
+
+    await button.click({ force: true }).catch(() => undefined);
     return {
-      submitted: false,
-      message: 'submit button detected but no real submit was executed'
+      submitted: true,
+      message: 'real publish click executed',
+      submitButtonFound: true,
+      realPublishEnabled: true
     };
   }
 }
