@@ -195,19 +195,32 @@ const runAuthCheck = async (): Promise<void> => {
 
 const runPublishCheck = async (): Promise<void> => {
   const accountId = process.env.XHS_ACCOUNT_ID ?? 'default';
-  const content = await getPublishContentFromEnv();
   const keepOpen = process.env.XHS_KEEP_OPEN_AFTER_CHECK !== 'false';
   const { browser, context, sessionManager } = await createContext(accountId);
 
   try {
     const page = await context.newPage();
     await ensureLoginForPublish(page, accountId, sessionManager, context);
-    await fillPublishPage(page, content, accountId);
-    logger.warn('publish-check completed; no real submit was executed');
-    if (keepOpen) {
-      logger.warn('browser kept open for manual inspection; set XHS_KEEP_OPEN_AFTER_CHECK=false to auto-close');
-      await waitForever();
-    }
+    const publishPage = new PublishPage();
+    const editor = new Editor();
+    await publishPage.open(page);
+    const switched = await editor.switchToImagePostMode(page).catch(() => false);
+    const probe = await editor.waitForEditableFields(page);
+    const screenshotPath = await logPageDiagnostics(page, accountId, 'publish-check');
+
+    logger.info('publish-check diagnostics', {
+      switched,
+      mode: probe.mode,
+      titleInputFound: Boolean(probe.titleInput),
+      bodyEditorFound: Boolean(probe.bodyEditor),
+      currentUrl: page.url(),
+      screenshotPath
+    });
+
+    if (!keepOpen) return;
+
+    logger.warn('publish-check completed; browser kept open for manual inspection and no real submit was executed');
+    await waitForever();
   } finally {
     if (!keepOpen) await browser.close();
   }
@@ -215,13 +228,14 @@ const runPublishCheck = async (): Promise<void> => {
 
 const runPublishOpen = async (): Promise<void> => {
   const accountId = process.env.XHS_ACCOUNT_ID ?? 'default';
-  const content = await getPublishContentFromEnv();
   const { browser, context, sessionManager } = await createContext(accountId);
 
   try {
     const page = await context.newPage();
     await ensureLoginForPublish(page, accountId, sessionManager, context);
-    await fillPublishPage(page, content, accountId);
+    const publishPage = new PublishPage();
+    await publishPage.open(page);
+    await logPageDiagnostics(page, accountId, 'publish-open');
     logger.warn('publish-open completed; browser will stay open for manual continuation and no real submit was executed');
     await waitForever();
   } finally {
@@ -253,7 +267,7 @@ const runPublishFill = async (): Promise<void> => {
     throw new Error('manual switch to 上传图文 did not expose editable fields within the timeout window');
   } catch (error) {
     logger.error('publish-fill failed', { error: error instanceof Error ? error.message : String(error) });
-    await waitForever();
+    throw error;
   } finally {
     await browser.close();
   }

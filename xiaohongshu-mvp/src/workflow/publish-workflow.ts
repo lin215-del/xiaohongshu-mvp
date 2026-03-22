@@ -108,9 +108,6 @@ export class PublishWorkflow {
     }
 
     transition('ready_for_preview', 'content validated and login ready');
-    if (options.requireConfirmation !== false) {
-      transition('waiting_confirmation', 'manual confirmation required before publish');
-    }
 
     if (!risk.passed) {
       transition('failed', 'risk check failed');
@@ -122,6 +119,19 @@ export class PublishWorkflow {
         risk,
         transitions,
         message: 'risk check failed'
+      };
+    }
+
+    if (options.requireConfirmation !== false) {
+      transition('waiting_confirmation', 'manual confirmation required before publish');
+      return {
+        success: false,
+        stage,
+        preview,
+        validation,
+        risk,
+        transitions,
+        message: 'manual confirmation required before publish'
       };
     }
 

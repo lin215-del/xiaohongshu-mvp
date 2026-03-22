@@ -24,7 +24,10 @@ export class Submitter {
       return { submitted: false, message: 'submit button not found' };
     }
 
-    // TODO: 这一步目前只保留接口位。真实发布前应拆成 preview-ready / actual-submit 两段，避免误发。
-    return { submitted: true, message: 'submit button is available for future integration' };
+    // 当前版本明确不执行真实发布。即便检测到按钮，也只返回“可提交但未提交”的诊断结果。
+    return {
+      submitted: false,
+      message: 'submit button detected but no real submit was executed'
+    };
   }
 }

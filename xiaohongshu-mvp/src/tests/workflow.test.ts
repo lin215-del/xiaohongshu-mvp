@@ -10,7 +10,7 @@ const content: PublishContent = {
   imagePaths: ['1.png']
 };
 
-test('workflow dry-run reaches published when risk passes', async () => {
+test('workflow dry-run stops at waiting_confirmation when confirmation is required', async () => {
   const workflow = new PublishWorkflow({ now: () => new Date('2026-03-21T09:00:00.000Z') });
   const result = await workflow.run({
     content,
@@ -22,6 +22,32 @@ test('workflow dry-run reaches published when risk passes', async () => {
   assert.deepEqual(
     result.transitions.map((item) => item.to),
     ['checking_login', 'ready_for_preview', 'waiting_confirmation', 'published']
+  );
+});
+
+
+test('workflow pauses for manual confirmation before non-dry-run publish', async () => {
+  const workflow = new PublishWorkflow({ now: () => new Date('2026-03-21T09:00:00.000Z') }) as unknown as {
+    run: PublishWorkflow['run'];
+    loginChecker: { check: () => Promise<{ loggedIn: boolean; reason: string }> };
+  };
+
+  workflow.loginChecker = {
+    check: async () => ({ loggedIn: true, reason: 'stubbed login' })
+  };
+
+  const result = await workflow.run({
+    page: {} as never,
+    content,
+    options: { requireConfirmation: true }
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.stage, 'waiting_confirmation');
+  assert.equal(result.message, 'manual confirmation required before publish');
+  assert.deepEqual(
+    result.transitions.map((item) => item.to),
+    ['checking_login', 'ready_for_preview', 'waiting_confirmation']
   );
 });
 
